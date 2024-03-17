@@ -1,7 +1,17 @@
+import { ExpressionBuilder, ExpressionWrapper, SelectQueryBuilder, sql } from 'kysely';
+import { jsonArrayFrom, jsonObjectFrom } from 'kysely/helpers/postgres';
 import _ from 'lodash';
 import { AssetEntity } from 'src/entities/asset.entity';
 import { AssetSearchBuilderOptions } from 'src/interfaces/search.interface';
-import { Between, IsNull, LessThanOrEqual, MoreThanOrEqual, Not, SelectQueryBuilder } from 'typeorm';
+import { Assets, DB } from 'src/prisma/generated/types';
+import {
+  Between,
+  IsNull,
+  LessThanOrEqual,
+  MoreThanOrEqual,
+  Not,
+  SelectQueryBuilder as TypeormSelectQueryBuilder,
+} from 'typeorm';
 
 /**
  * Allows optional values unlike the regular Between and uses MoreThanOrEqual
@@ -21,9 +31,9 @@ export const asVector = (embedding: number[], quote = false) =>
   quote ? `'[${embedding.join(',')}]'` : `[${embedding.join(',')}]`;
 
 export function searchAssetBuilder(
-  builder: SelectQueryBuilder<AssetEntity>,
+  builder: TypeormSelectQueryBuilder<AssetEntity>,
   options: AssetSearchBuilderOptions,
-): SelectQueryBuilder<AssetEntity> {
+): TypeormSelectQueryBuilder<AssetEntity> {
   builder.andWhere(
     _.omitBy(
       {
@@ -150,3 +160,37 @@ export function searchAssetBuilder(
 
   return builder;
 }
+
+export const withExif = (eb: ExpressionBuilder<DB, 'assets'>) =>
+  jsonObjectFrom(eb.selectFrom('exif').selectAll().whereRef('exif.assetId', '=', 'assets.id')).as('exifInfo');
+
+export const withSmartInfo = (eb: ExpressionBuilder<DB, 'assets'>) =>
+  jsonObjectFrom(eb.selectFrom('smart_info').selectAll().whereRef('smart_info.assetId', '=', 'assets.id')).as(
+    'smartInfo',
+  );
+
+export const withFaces = (eb: ExpressionBuilder<DB, 'assets'>) =>
+  jsonArrayFrom(eb.selectFrom('asset_faces').selectAll().whereRef('asset_faces.assetId', '=', 'assets.id')).as('faces');
+
+export const withPeople = (eb: ExpressionBuilder<DB, 'assets' | 'asset_faces'>) =>
+  jsonObjectFrom(eb.selectFrom('person').selectAll().whereRef('asset_faces.personId', '=', 'person.id')).as('people');
+
+export const withOwner = (eb: ExpressionBuilder<DB, 'assets'>) =>
+  jsonObjectFrom(eb.selectFrom('users').selectAll().whereRef('users.id', '=', 'assets.ownerId')).as('owner');
+
+export const withStack = <O>(qb: SelectQueryBuilder<DB, 'assets', O>, { assets }: { assets: boolean }) =>
+  qb
+    .leftJoin('asset_stack', 'asset_stack.primaryAssetId', 'assets.id')
+    .select((eb) => eb.fn.toJson('asset_stack').as('stack'))
+    .$if(assets, (qb) =>
+      qb.select((eb) =>
+        eb
+          .selectFrom('assets as stacked')
+          .select(
+            sql<Assets[]>`json_agg(jsonb_strip_nulls(to_jsonb(stacked)))`.as('stackedAssets'),
+          )
+          .whereRef('asset_stack.id', '=', 'assets.stackId')
+          .whereRef('asset_stack.primaryAssetId', '!=', 'assets.id')
+          .as('stackedAssets'),
+      ),
+    );
