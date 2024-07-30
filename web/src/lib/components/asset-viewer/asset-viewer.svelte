@@ -8,14 +8,13 @@
   import { isShowDetail, showDeleteModal } from '$lib/stores/preferences.store';
   import { featureFlags } from '$lib/stores/server-config.store';
   import { SlideshowNavigation, SlideshowState, slideshowStore } from '$lib/stores/slideshow.store';
-  import { stackAssetsStore } from '$lib/stores/stacked-asset.store';
   import { user } from '$lib/stores/user.store';
   import { getAssetJobMessage, getSharedLink, handlePromiseError, isSharedLink } from '$lib/utils';
   import {
     addAssetsToAlbum,
     addAssetsToNewAlbum,
     downloadFile,
-    unstackAssets,
+    deleteStack,
     toggleArchive,
   } from '$lib/utils/asset-utils';
   import { handleError } from '$lib/utils/handle-error';
@@ -38,6 +37,7 @@
     type ActivityResponseDto,
     type AlbumResponseDto,
     type AssetResponseDto,
+    getStack,
   } from '@immich/sdk';
   import { mdiChevronLeft, mdiChevronRight, mdiImageBrokenVariant } from '@mdi/js';
   import { createEventDispatcher, onDestroy, onMount } from 'svelte';
@@ -111,23 +111,28 @@
   let copyImage: () => Promise<void>;
   $: isFullScreen = fullscreenElement !== null;
 
-  $: {
-    if (asset.stackCount && asset.stack) {
-      $stackAssetsStore = asset.stack;
-      $stackAssetsStore = [...$stackAssetsStore, asset].sort(
-        (a, b) => new Date(b.fileCreatedAt).getTime() - new Date(a.fileCreatedAt).getTime(),
-      );
+  let stackAssets: AssetResponseDto[] = [];
 
-      // if its a stack, add the next stack image in addition to the next asset
-      if (asset.stackCount > 1) {
-        preloadAssets.push($stackAssetsStore[1]);
-      }
+  const refreshStack = async () => {
+    if (isSharedLink()) {
+      return;
     }
 
-    if (!$stackAssetsStore.map((a) => a.id).includes(asset.id)) {
-      $stackAssetsStore = [];
+    if (asset.stack) {
+      const stack = await getStack({ id: asset.stack.id });
+      stackAssets = stack.assets;
     }
-  }
+
+    if (!stackAssets.map((a) => a.id).includes(asset.id)) {
+      stackAssets = [];
+    }
+
+    if (stackAssets.length > 1) {
+      preloadAssets.push(stackAssets[1]);
+    }
+  };
+
+  $: asset, handlePromiseError(refreshStack());
 
   $: {
     if (album && !album.isActivityEnabled && numberOfComments === 0) {
@@ -227,15 +232,6 @@
 
     if (!sharedLink) {
       await handleGetAllAlbums();
-    }
-
-    if (asset.stackCount && asset.stack) {
-      $stackAssetsStore = asset.stack;
-      $stackAssetsStore = [...$stackAssetsStore, asset].sort(
-        (a, b) => new Date(a.fileCreatedAt).getTime() - new Date(b.fileCreatedAt).getTime(),
-      );
-    } else {
-      $stackAssetsStore = [];
     }
   });
 
@@ -499,13 +495,15 @@
   };
 
   const handleUnstack = async () => {
-    const unstackedAssets = await unstackAssets($stackAssetsStore);
+    const primaryAsset = stackAssets.find((asset) => !!asset.stack);
+    if (!primaryAsset?.stack) {
+      return;
+    }
+
+    const unstackedAssets = await deleteStack(primaryAsset.stack.id);
     if (unstackedAssets) {
       for (const asset of unstackedAssets) {
-        dispatch('action', {
-          type: AssetAction.ADD,
-          asset,
-        });
+        dispatch('action', { type: AssetAction.ADD, asset });
       }
       await closeViewer();
     }
@@ -571,7 +569,7 @@
         showDownloadButton={shouldShowDownloadButton}
         showDetailButton={enableDetailPanel}
         showSlideshow={!!assetStore}
-        hasStackChildren={$stackAssetsStore.length > 0}
+        hasStackChildren={stackAssets.length > 0}
         showShareButton={shouldShowShareModal}
         onZoomImage={zoomToggle}
         onCopyImage={copyImage}
@@ -715,13 +713,13 @@
     </div>
   {/if}
 
-  {#if $stackAssetsStore.length > 0 && withStacked}
+  {#if stackAssets.length > 0 && withStacked}
     <div
       id="stack-slideshow"
       class="z-[1002] flex place-item-center place-content-center absolute bottom-0 w-full col-span-4 col-start-1 overflow-x-auto horizontal-scrollbar"
     >
       <div class="relative w-full whitespace-nowrap transition-all">
-        {#each $stackAssetsStore as stackedAsset, index (stackedAsset.id)}
+        {#each stackAssets as stackedAsset, index (stackedAsset.id)}
           <div
             class="{stackedAsset.id == asset.id
               ? '-translate-y-[1px]'
@@ -735,7 +733,7 @@
               onClick={(stackedAsset, event) => {
                 event.preventDefault();
                 asset = stackedAsset;
-                preloadAssets = index + 1 >= $stackAssetsStore.length ? [] : [$stackAssetsStore[index + 1]];
+                preloadAssets = index + 1 >= stackAssets.length ? [] : [stackAssets[index + 1]];
               }}
               on:mouse-event={(e) => handleStackedAssetMouseEvent(e, stackedAsset)}
               readonly
