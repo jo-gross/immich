@@ -95,7 +95,7 @@
     "logging_level_description": "로깅이 활성화된 경우 사용할 로그 레벨을 선택합니다.",
     "logging_settings": "로깅",
     "machine_learning_clip_model": "CLIP 모델",
-    "machine_learning_clip_model_description": "CLIP 모델의 종류는 <link>이곳</link>을 참조하세요. 변경 후 모든 항목의 스마트 검색 작업을 다시 진행해야 합니다.",
+    "machine_learning_clip_model_description": "CLIP 모델의 종류는 <link>이곳</link>을 참조하세요. 한국어로 검색하려면 Multilingual CLIP 모델을 선택하세요. 변경 후 모든 항목에 대한 스마트 검색 작업을 다시 진행해야 합니다.",
     "machine_learning_duplicate_detection": "비슷한 항목 감지",
     "machine_learning_duplicate_detection_enabled": "비슷한 항목 감지 활성화",
     "machine_learning_duplicate_detection_enabled_description": "비활성화된 경우에도 완전히 일치하는 항목은 여전히 감지됩니다.",
